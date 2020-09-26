@@ -1,11 +1,34 @@
 
+def is_name( fn )
+  begin
+    case fn
+    when /ilp32/, /lp64/
+      "ARM(64bit)"
+    when /cortex\-a53\-32/
+      "ARM(32bit)"
+    when /cortex\-m4/
+      "ARM(32bit, Thumb)"
+    when /x64/
+      "amd64"
+    end
+  rescue => e
+    p [ fn ]
+    raise e
+  end
+end
+
 def single_conds
   names = Dir.glob( "asm/*.s" ).map{ |e|
     m=%r!asm/(.*)_((\w)\3*)\.s$!.match(e)
     [m[1],m[2][0],m[2].size]
   }
+  sorters = [
+    ->(v){[is_name(v),v]},
+    ->(v){"bsilpfdjkxy".index(v)},
+    ->(v){v},
+  ]
   Array.new(3){ |ix|
-    names.map{ |e| e[ix] }.uniq.sort
+    names.map{ |e| e[ix] }.uniq.sort_by{ |v| sorters[ix][v] }
   }
 end
 
@@ -14,6 +37,10 @@ def dispname(e)
     "b"=>"char",
     "s"=>"short",
     "i"=>"int32_t",
+    "j"=>"struct(int32_t × 2)",
+    "k"=>"struct(int32_t × 4)",
+    "x"=>"struct(int32_t + float)",
+    "y"=>"struct(int32_t + double)",
     "l"=>"int64_t",
     "f"=>"float",
     "d"=>"double",
@@ -115,7 +142,7 @@ def single
         no_stack?(target, "asm/#{target}_#{t*c}.s")
       } || :nil
     }
-    puts( "|x|#{target}|#{res.join("|")}|" )
+    puts( "|#{is_name(target)}|#{target}|#{res.join("|")}|" )
   end
 end
 

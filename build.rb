@@ -17,6 +17,10 @@ Args = Struct.new( :arg_list ) do
       "b"=>"char",
       "s"=>"short",
       "i"=>"int",
+      "j"=>"int2",
+      "k"=>"int4",
+      "x"=>"int_f",
+      "y"=>"int_d",
       "l"=>"long long",
       "f"=>"float",
       "d"=>"double",
@@ -27,13 +31,25 @@ Args = Struct.new( :arg_list ) do
     arg_list.chars.map.with_index(0){ |e,ix| "#{typename(e)} v#{ix}" }.join(", ")
   end
   def values
-    arg_list.chars.map.with_index(0){ |e,ix| "(#{typename(e)})#{ix+63}" }.join(", ")
+    arg_list.chars.map.with_index(0){ |e,ix| 
+      case e
+      when "j", "k", "x", "y"
+        "(#{typename(e)}){#{ix+63}}"
+      else
+        "(#{typename(e)})#{ix+63}"
+      end
+    }.join(", ")
   end
 end
 
 [*1..33].each do |i|
   [
+    Args.new( "j"*i ),
+    Args.new( "k"*i ),
+    Args.new( "x"*i ),
+    Args.new( "y"*i ),
     Args.new( "b"*i ),
+    Args.new( "s"*i ),
     Args.new( "i"*i ),
     Args.new( "l"*i ),
     Args.new( "f"*i ),
@@ -42,8 +58,17 @@ end
   ].each do |a|
     File.open( SRC_FN, "w" ) do |f|
       f.puts <<~SRC
-      enum{ assert_int_is_4bytes = 1/((sizeof(int)==4)?1:0) };
-      enum{ assert_long_long_is_8bytes = 1/((sizeof(long long)==8)?1:0) };
+        enum{ assert_short_is_2bytes = 1/((sizeof(short)==2)?1:0) };
+        enum{ assert_int_is_4bytes = 1/((sizeof(int)==4)?1:0) };
+        enum{ assert_long_long_is_8bytes = 1/((sizeof(long long)==8)?1:0) };
+        struct int2{ int a, b; };
+        typedef struct int2 int2;
+        struct int4{ int a, b, c, d; };
+        typedef struct int4 int4;
+        struct int_f{ int a; float b; };
+        typedef struct int_f int_f;
+        struct int_d{ int a; double b; };
+        typedef struct int_d int_d;
         void caller_function (){
           extern void callee_function( #{a.decls}  );
           callee_function( #{a.values} );
