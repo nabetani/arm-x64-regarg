@@ -1,85 +1,126 @@
 
-def get_conds
-  names = Dir.glob( "asm/*.s" ).map{ |e| 
-    m=%r!asm/(.*)_(\w)(\d+)\.s$!.match(e)
-    m.to_a.drop(1)
+def single_conds
+  names = Dir.glob( "asm/*.s" ).map{ |e|
+    m=%r!asm/(.*)_((\w)\3*)\.s$!.match(e)
+    [m[1],m[2][0],m[2].size]
   }
-  targets, t, s = Array.new(3){ |ix|
+  Array.new(3){ |ix|
     names.map{ |e| e[ix] }.uniq.sort
   }
-  [ targets, t, s.map(&:to_i).sort ]
 end
 
-targets, types, counts = get_conds
-
-
-def using_stack_x86(asm)
-  s=/^_foo_\w+\:([\s\S]+?)(?:jmp|call)\s+_foo_\w+/.match(asm)[1]
-  return false unless /^\s*mov\w*\s+\%\w+\s*\,\s*(\d+)\(\%esp\)/===s
-  4<$1.to_i
+def dispname(e)
+  {
+    "b"=>"char",
+    "s"=>"short",
+    "i"=>"int32_t",
+    "l"=>"int64_t",
+    "f"=>"float",
+    "d"=>"double",
+    "p"=>"void*"
+  }[e] || (raise "unexpected type #{e}")
 end
 
-def using_stack_x64(asm)
-  s=/^_foo_\w+\:([\s\S]+?)(?:jmp|call)\s+_foo_\w+/.match(asm)[1]
-  /^\s*mov\w*\s+\%\w+\s*\,\s*\d+\(\%rsp\)/===s
+def lines_arm(body)
+  body.split( /[\r\n]+/ ).map{ |line|
+    elements = line.scan( /(?:\#\d+)|\w+|\W/ ).to_a
+    elements.select{ |c| !(/^\s+$/===c || ","==c) }
+  }.select{ |e| !e.empty? }
 end
 
-def using_stack_arm32(asm)
-  /^\s*ldr\s+\w+\s*\,\s*\[\s*sp\s*\,/===asm ||
-  /^\s*ldrd\s+\w+\s*\,\s*\[\s*sp\s*\,/===asm ||
-  /^\s*vldr(?:\.\d+)?\s*\w+\s*\,\s*\[\s*sp\,/===asm ||
-  /^\s*ldrd\s+\w+\s*\,\s*\[\s*sp/===asm
+def stack_arm64(src)
+  body = /^caller_function:$([\s\S]*)(?:b|bl)?\s+callee_function/.match(src)[1]
+  lines_arm(body).any?{ |line|
+    #stp	x29, x30, [sp, 208]
+    ( line[0]=="stp" && line[3]=="[" && line[4]=="sp" && line.last=="]" ) ||
+    # str	x0, [sp, 176]
+    ( line[0]=="str" && line[2]=="[" && line[3]=="sp" && line.last=="]" )
+  }
 end
 
-def using_stack_arm64(asm)
-  s=/^foo_\w+\:([\s\S]+?)^\s*(?:bl|b)\s+foo_\w\s*$/.match(asm)[1]
-  /\s*ldr\w*\s+/===s
+def stack_arm32(src)
+  body = /^caller_function:$([\s\S]*)(?:b|bl)?\s+callee_function/.match(src)[1]
+  lines_arm(body).any?{ |line|
+    #stp	x29, x30, [sp, 208]
+    ( line[0]=="stp" && line[3]=="[" && line[4]=="sp" && line.last=="]" ) ||
+    # str	x0, [sp, 176]
+    ( line[0]=="str" && line[2]=="[" && line[3]=="sp" && line.last=="]" ) ||
+    # str	r3, [sp]
+    ( line[0]=="str" && line[2]=="[" && line[3]=="sp" && line.last=="]" ) ||
+    # strd	r4, [sp, #112]
+    ( line[0]=="strd" && line[2]=="[" && line[3]=="sp" && line.last=="]" ) ||
+    # str	r3, [sp, #24]	@ float
+    ( line[0]=="str" && line[2]=="[" && line[3]=="sp" && line.last(3)==%w( ] @ float) ) ||
+    # strd	r3, r2, [sp]
+    ( line[0]=="strd" && line[3]=="[" && line[4]=="sp" && line.last=="]" ) ||
+    # stm	sp, {r0, r1, r2, r3}
+    ( line[0,3]==%w(stm sp {) )
+  }
 end
 
-def using_stack?(target,asm)
-  case target
-  when /^x86/
-    using_stack_x86(asm)
-  when /^x64/
-    using_stack_x64(asm)
-  when "cortex-a53-32hard", "cortex-a53-32soft", "cortex-m4-hard", "cortex-m4-soft"
-    using_stack_arm32(asm)
-  when "cortex-a53-ilp32", "cortex-a53-lp64"
-    using_stack_arm64(asm)
-  end
+def lines_x64(body)
+  body.split( /[\r\n]+/ ).map{ |line|
+    elements = line.scan( /(?:\$0x[0-9a-fA-F]+)|(?:\$\d+)|(?:\%\w+)|\w+|\W/ ).to_a
+    elements.select{ |c| !(/^\s+$/===c || ","==c) }
+  }.select{ |e| !e.empty? }
 end
 
+def stack_x64(src)
+  body = /^_caller_function:$([\s\S]*)(?:call|jmp)\s+_callee_function/.match(src)[1]
+  lines_x64(body).any?{ |line|
+    cond = (
+      # movl	$71, 64(%rsp)
+      (line[0]=="movl" && line[3,3]==%w[( %rsp )]) ||
+      # pushq	$74
+      (line[0]=="pushq" && line[1]&.start_with?("$")) ||
+      #	movabsq	$4634978072750194688, %r10
+      (line[0]=="movabsq" && line[1]&.start_with?("$") && line[2]&.start_with?("%r")) ||
+      # movq	%rax, 40(%rsp)
+      (line[0]=="movq" && line[1]&.start_with?("%r") && line[3,3]==%w[( %rsp )]) ||
+      # movl	$0x42920000, 80(%rsp)
+      (line[0]=="movl" && line[1]&.start_with?("$") && line[3,3]==%w[( %rsp )]) ||
+      # movq	$79, 128(%rsp)
+      (line[0]=="movq" && line[1]&.start_with?("$") && line[3,3]==%w[( %rsp )])
+    )
+    cond
+  }
+end
 
-res=Hash.new{ |h,k| h[k]={} }
-targets.each do |target|
-  types.each do |vt|
-    stack_limit = counts.find do |c|
-      asm = File.open( "asm/#{target}_#{vt}#{c}.s", &:read )
-      using_stack?(target,asm)
+def no_stack?( target, fn )
+  src = File.open(fn, &:read)
+  begin
+    case target
+    when /ilp32/, /lp64/
+      !stack_arm64(src)
+    when /cortex\-a53\-32/, /cortex\-m4/
+      !stack_arm32(src)
+    when /x64/
+      !stack_x64(src)
     end
-    res[target][vt]=stack_limit
+  rescue => e
+    p [ fn ]
+    raise e
   end
 end
 
-def cat(t)
-  case t
-  when /^x86/
-    "x86(32bit)"
-  when /^x64/
-    "amd64(64bit)"
-  when "cortex-a53-32hard", "cortex-a53-32soft"
-    "ARM(32bit)"
-  when "cortex-m4-hard", "cortex-m4-soft"
-    "ARM(32bit, Thumb)"
-  when "cortex-a53-ilp32", "cortex-a53-lp64"
-    "ARM(64bit)"
+def single
+  targets, types, counts = single_conds
+  puts <<~"HEAD"
+    |命令セット|条件|#{types.map{ |e| "`#{dispname(e)}`" }.join("|")}|
+    |:--|:--|#{types.map{ "--:" }.join("|")}|
+  HEAD
+  targets.each do |target|
+    res = types.map{ |t| 
+      counts.reverse.find{ |c|
+        no_stack?(target, "asm/#{target}_#{t*c}.s")
+      } || :nil
+    }
+    puts( "|x|#{target}|#{res.join("|")}|" )
   end
 end
 
-
-puts( "|命令セット|条件|`uint8_t`|`int`|`void*`|`float`|`double`|")
-puts( "|:--|:--|--:|--:|--:|--:|--:|")
-res.each do |t,m|
-  h=["",cat(t),t] + %w(b i p f d).map{ |t| m[t] }+[""]
-  puts( h.join("|") )
+def main
+  single
 end
+
+main
