@@ -24,7 +24,7 @@ def single_conds
   }
   sorters = [
     ->(v){[is_name(v),v]},
-    ->(v){"bsilpfdjkxy".index(v)},
+    ->(v){"bsilpfdhgjkxy".index(v)},
     ->(v){v},
   ]
   Array.new(3){ |ix|
@@ -37,10 +37,12 @@ def dispname(e)
     "b"=>"char",
     "s"=>"short",
     "i"=>"int32_t",
-    "j"=>"struct(int32_t × 2)",
-    "k"=>"struct(int32_t × 4)",
-    "x"=>"struct(int32_t + float)",
-    "y"=>"struct(int32_t + double)",
+    "h"=>"char × 2",
+    "g"=>"short × 1",
+    "j"=>"int32_t × 2",
+    "k"=>"int32_t × 4",
+    "x"=>"int32_t + float",
+    "y"=>"int32_t + double",
     "l"=>"int64_t",
     "f"=>"float",
     "d"=>"double",
@@ -82,7 +84,9 @@ def stack_arm32(src)
     ( line[0]=="strd" && line[3]=="[" && line[4]=="sp" && line.last=="]" ) ||
     # stm	sp, {r0, r1, r2, r3}
     # stm	ip, {r0, r1, r2, r3}
-    ( line[0]=="stm" && line[2]=="{" && line.last=="}" && line[3,4].all?{ |e| e.start_with?("r") } )
+    ( line[0]=="stm" && line[2]=="{" && line.last=="}" && line[3..-2].all?{ |e| e.start_with?("r") } ) ||
+    # strh	r2, [sp, #36]	@ movhi
+    ( line[0]=="strh" && line[2]=="[" && line[3]=="sp" && line.last(3)==%w( ] @ movhi) )
   }
 end
 
@@ -98,17 +102,17 @@ def stack_x64(src)
   lines_x64(body).any?{ |line|
     cond = (
       # movl	$71, 64(%rsp)
-      (line[0]=="movl" && line[3,3]==%w[( %rsp )]) ||
+      (line[0].start_with?("mov") && line[3,3]==%w[( %rsp )]) ||
       # pushq	%rsi
       (line[0]=="pushq" && line[1]&.start_with?("%r")) ||
       # pushq	$74
       (line[0]=="pushq" && line[1]&.start_with?("$")) ||
       # movq	%rax, 40(%rsp)
-      (line[0]=="movq" && line[1]&.start_with?("%r") && line[3,3]==%w[( %rsp )]) ||
+      (line[0].start_with?("mov") && line[1]&.start_with?("%r") && line[3,3]==%w[( %rsp )]) ||
       # movl	$0x42920000, 80(%rsp)
-      (line[0]=="movl" && line[1]&.start_with?("$") && line[3,3]==%w[( %rsp )]) ||
+      (line[0].start_with?("mov") && line[1]&.start_with?("$") && line[3,3]==%w[( %rsp )]) ||
       # movq	$79, 128(%rsp)
-      (line[0]=="movq" && line[1]&.start_with?("$") && line[3,3]==%w[( %rsp )])
+      (line[0].start_with?("mov") && line[1]&.start_with?("$") && line[3,3]==%w[( %rsp )])
     )
     cond
   }
@@ -131,8 +135,7 @@ def no_stack?( target, fn )
   end
 end
 
-def single
-  targets, types, counts = single_conds
+def single(targets, types, counts)
   puts <<~"HEAD"
     |命令セット|条件|#{types.map{ |e| "`#{dispname(e)}`" }.join("|")}|
     |:--|:--|#{types.map{ "--:" }.join("|")}|
@@ -148,7 +151,10 @@ def single
 end
 
 def main
-  single
+  targets, types, counts = single_conds
+  etypes = "bsilfdp".chars
+  single( targets, types & etypes, counts )
+  single( targets, types-etypes, counts )
 end
 
 main

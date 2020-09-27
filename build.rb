@@ -16,6 +16,8 @@ Args = Struct.new( :arg_list ) do
     {
       "b"=>"char",
       "s"=>"short",
+      "g"=>"short1",
+      "h"=>"char2",
       "i"=>"int",
       "j"=>"int2",
       "k"=>"int4",
@@ -33,8 +35,12 @@ Args = Struct.new( :arg_list ) do
   def values
     arg_list.chars.map.with_index(0){ |e,ix| 
       case e
-      when "j", "k", "x", "y"
-        "(#{typename(e)}){#{ix+63}}"
+      when "g"
+        "(#{typename(e)}){#{(0...1).map{ |o| "#{o+ix+63}"}.join(",")}}"
+      when "h", "j", "x", "y"
+        "(#{typename(e)}){#{(0...2).map{ |o| "#{o+ix+63}"}.join(",")}}"
+      when "k"
+        "(#{typename(e)}){#{(0...4).map{ |o| "#{o+ix+63}"}.join(",")}}"
       else
         "(#{typename(e)})#{ix+63}"
       end
@@ -42,8 +48,10 @@ Args = Struct.new( :arg_list ) do
   end
 end
 
-[*1..33].each do |i|
+[*1..17].each do |i|
   [
+    Args.new( "g"*i ),
+    Args.new( "h"*i ),
     Args.new( "j"*i ),
     Args.new( "k"*i ),
     Args.new( "x"*i ),
@@ -61,6 +69,10 @@ end
         enum{ assert_short_is_2bytes = 1/((sizeof(short)==2)?1:0) };
         enum{ assert_int_is_4bytes = 1/((sizeof(int)==4)?1:0) };
         enum{ assert_long_long_is_8bytes = 1/((sizeof(long long)==8)?1:0) };
+        struct short1{ short a; };
+        typedef struct short1 short1;
+        struct char2{ char a, b; };
+        typedef struct char2 char2;
         struct int2{ int a, b; };
         typedef struct int2 int2;
         struct int4{ int a, b, c, d; };
