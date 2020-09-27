@@ -83,25 +83,56 @@ def create_asms(a)
   FileUtils.rm(fn)
 end
 
-[*1..17].each do |i|
-  threads = [
-    Args.new( "g"*i ),
-    Args.new( "h"*i ),
-    Args.new( "j"*i ),
-    Args.new( "k"*i ),
-    Args.new( "x"*i ),
-    Args.new( "y"*i ),
-    Args.new( "b"*i ),
-    Args.new( "s"*i ),
-    Args.new( "i"*i ),
-    Args.new( "l"*i ),
-    Args.new( "f"*i ),
-    Args.new( "d"*i ),
-    Args.new( "p"*i ),
-  ].map{ |a|
-    Thread.new do 
-      create_asms(a)
-    end
-  }
-  threads.each(&:join)
+def single
+  [*1..17].each do |i|
+    threads = [
+      Args.new( "g"*i ),
+      Args.new( "h"*i ),
+      Args.new( "j"*i ),
+      Args.new( "k"*i ),
+      Args.new( "x"*i ),
+      Args.new( "y"*i ),
+      Args.new( "b"*i ),
+      Args.new( "s"*i ),
+      Args.new( "i"*i ),
+      Args.new( "l"*i ),
+      Args.new( "f"*i ),
+      Args.new( "d"*i ),
+      Args.new( "p"*i ),
+    ].map{ |a|
+      Thread.new do 
+        create_asms(a)
+      end
+    }
+    threads.each(&:join)
+  end
 end
+
+def max_count(t)
+  case t
+  when "i", "s", "d"
+    9
+  when "f"
+    17
+  end
+end
+
+def multi
+  threads = %w(
+    is if id
+  ).map{ |t|
+    l0 = max_count(t[0])
+    l1 = max_count(t[1])
+    (1..l0).map{ |a0|
+      (1..l1).map{ |a1|
+        Thread.new do 
+          create_asms(Args.new((t[0]*a0+t[1]*a1).chars.sort.join) )
+        end
+      }
+    }
+  }
+  threads.flatten.each(&:join)
+end
+
+single
+multi
