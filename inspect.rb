@@ -81,7 +81,8 @@ def stack_arm32(src)
     # strd	r3, r2, [sp]
     ( line[0]=="strd" && line[3]=="[" && line[4]=="sp" && line.last=="]" ) ||
     # stm	sp, {r0, r1, r2, r3}
-    ( line[0,3]==%w(stm sp {) )
+    # stm	ip, {r0, r1, r2, r3}
+    ( line[0]=="stm" && line[2]=="{" && line.last=="}" && line[3,4].all?{ |e| e.start_with?("r") } )
   }
 end
 
@@ -98,10 +99,10 @@ def stack_x64(src)
     cond = (
       # movl	$71, 64(%rsp)
       (line[0]=="movl" && line[3,3]==%w[( %rsp )]) ||
+      # pushq	%rsi
+      (line[0]=="pushq" && line[1]&.start_with?("%r")) ||
       # pushq	$74
       (line[0]=="pushq" && line[1]&.start_with?("$")) ||
-      #	movabsq	$4634978072750194688, %r10
-      (line[0]=="movabsq" && line[1]&.start_with?("$") && line[2]&.start_with?("%r")) ||
       # movq	%rax, 40(%rsp)
       (line[0]=="movq" && line[1]&.start_with?("%r") && line[3,3]==%w[( %rsp )]) ||
       # movl	$0x42920000, 80(%rsp)
@@ -140,7 +141,7 @@ def single
     res = types.map{ |t| 
       counts.reverse.find{ |c|
         no_stack?(target, "asm/#{target}_#{t*c}.s")
-      } || :nil
+      } || 0
     }
     puts( "|#{is_name(target)}|#{target}|#{res.join("|")}|" )
   end
